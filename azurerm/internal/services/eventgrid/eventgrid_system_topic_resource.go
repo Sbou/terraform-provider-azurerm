@@ -3,6 +3,7 @@ package eventgrid
 import (
 	"fmt"
 	"log"
+	"regexp"
 	"time"
 
 	"github.com/Azure/azure-sdk-for-go/services/preview/eventgrid/mgmt/2020-04-01-preview/eventgrid"
@@ -14,17 +15,17 @@ import (
 	"github.com/terraform-providers/terraform-provider-azurerm/azurerm/internal/clients"
 	"github.com/terraform-providers/terraform-provider-azurerm/azurerm/internal/services/eventgrid/parse"
 	"github.com/terraform-providers/terraform-provider-azurerm/azurerm/internal/tags"
-	azSchema "github.com/terraform-providers/terraform-provider-azurerm/azurerm/internal/tf/schema"
+	"github.com/terraform-providers/terraform-provider-azurerm/azurerm/internal/tf/pluginsdk"
 	"github.com/terraform-providers/terraform-provider-azurerm/azurerm/internal/timeouts"
 	"github.com/terraform-providers/terraform-provider-azurerm/azurerm/utils"
 )
 
-func resourceArmEventGridSystemTopic() *schema.Resource {
+func resourceEventGridSystemTopic() *schema.Resource {
 	return &schema.Resource{
-		Create: resourceArmEventGridSystemTopicCreateUpdate,
-		Read:   resourceArmEventGridSystemTopicRead,
-		Update: resourceArmEventGridSystemTopicCreateUpdate,
-		Delete: resourceArmEventGridSystemTopicDelete,
+		Create: resourceEventGridSystemTopicCreateUpdate,
+		Read:   resourceEventGridSystemTopicRead,
+		Update: resourceEventGridSystemTopicCreateUpdate,
+		Delete: resourceEventGridSystemTopicDelete,
 
 		Timeouts: &schema.ResourceTimeout{
 			Create: schema.DefaultTimeout(30 * time.Minute),
@@ -33,17 +34,23 @@ func resourceArmEventGridSystemTopic() *schema.Resource {
 			Delete: schema.DefaultTimeout(30 * time.Minute),
 		},
 
-		Importer: azSchema.ValidateResourceIDPriorToImport(func(id string) error {
-			_, err := parse.EventGridSystemTopicID(id)
+		Importer: pluginsdk.ImporterValidatingResourceId(func(id string) error {
+			_, err := parse.SystemTopicID(id)
 			return err
 		}),
 
 		Schema: map[string]*schema.Schema{
 			"name": {
-				Type:         schema.TypeString,
-				Required:     true,
-				ForceNew:     true,
-				ValidateFunc: validation.StringIsNotEmpty,
+				Type:     schema.TypeString,
+				Required: true,
+				ForceNew: true,
+				ValidateFunc: validation.All(
+					validation.StringIsNotEmpty,
+					validation.StringMatch(
+						regexp.MustCompile("^[-a-zA-Z0-9]{3,128}$"),
+						"EventGrid Topics name must be 3 - 128 characters long, contain only letters, numbers and hyphens.",
+					),
+				),
 			},
 
 			"location": azure.SchemaLocation(),
@@ -58,29 +65,10 @@ func resourceArmEventGridSystemTopic() *schema.Resource {
 			},
 
 			"topic_type": {
-				Type:     schema.TypeString,
-				Required: true,
-				ForceNew: true,
-				ValidateFunc: validation.StringInSlice([]string{
-					"Microsoft.AppConfiguration.ConfigurationStores",
-					"Microsoft.Communication.CommunicationServices",
-					"Microsoft.ContainerRegistry.Registries",
-					"Microsoft.Devices.IoTHubs",
-					"Microsoft.EventGrid.Domains",
-					"Microsoft.EventGrid.Topics",
-					"Microsoft.Eventhub.Namespaces",
-					"Microsoft.KeyVault.vaults",
-					"Microsoft.MachineLearningServices.Workspaces",
-					"Microsoft.Maps.Accounts",
-					"Microsoft.Media.MediaServices",
-					"Microsoft.Resources.ResourceGroups",
-					"Microsoft.Resources.Subscriptions",
-					"Microsoft.ServiceBus.Namespaces",
-					"Microsoft.SignalRService.SignalR",
-					"Microsoft.Storage.StorageAccounts",
-					"Microsoft.Web.ServerFarms",
-					"Microsoft.Web.Sites",
-				}, false),
+				Type:         schema.TypeString,
+				Required:     true,
+				ForceNew:     true,
+				ValidateFunc: validation.StringIsNotEmpty,
 			},
 
 			"metric_arm_resource_id": {
@@ -93,7 +81,7 @@ func resourceArmEventGridSystemTopic() *schema.Resource {
 	}
 }
 
-func resourceArmEventGridSystemTopicCreateUpdate(d *schema.ResourceData, meta interface{}) error {
+func resourceEventGridSystemTopicCreateUpdate(d *schema.ResourceData, meta interface{}) error {
 	client := meta.(*clients.Client).EventGrid.SystemTopicsClient
 	ctx, cancel := timeouts.ForCreateUpdate(meta.(*clients.Client).StopContext, d)
 	defer cancel()
@@ -149,15 +137,15 @@ func resourceArmEventGridSystemTopicCreateUpdate(d *schema.ResourceData, meta in
 
 	d.SetId(*read.ID)
 
-	return resourceArmEventGridSystemTopicRead(d, meta)
+	return resourceEventGridSystemTopicRead(d, meta)
 }
 
-func resourceArmEventGridSystemTopicRead(d *schema.ResourceData, meta interface{}) error {
+func resourceEventGridSystemTopicRead(d *schema.ResourceData, meta interface{}) error {
 	client := meta.(*clients.Client).EventGrid.SystemTopicsClient
 	ctx, cancel := timeouts.ForRead(meta.(*clients.Client).StopContext, d)
 	defer cancel()
 
-	id, err := parse.EventGridSystemTopicID(d.Id())
+	id, err := parse.SystemTopicID(d.Id())
 	if err != nil {
 		return err
 	}
@@ -188,12 +176,12 @@ func resourceArmEventGridSystemTopicRead(d *schema.ResourceData, meta interface{
 	return tags.FlattenAndSet(d, resp.Tags)
 }
 
-func resourceArmEventGridSystemTopicDelete(d *schema.ResourceData, meta interface{}) error {
+func resourceEventGridSystemTopicDelete(d *schema.ResourceData, meta interface{}) error {
 	client := meta.(*clients.Client).EventGrid.SystemTopicsClient
 	ctx, cancel := timeouts.ForDelete(meta.(*clients.Client).StopContext, d)
 	defer cancel()
 
-	id, err := parse.EventGridSystemTopicID(d.Id())
+	id, err := parse.SystemTopicID(d.Id())
 	if err != nil {
 		return err
 	}

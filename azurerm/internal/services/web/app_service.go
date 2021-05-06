@@ -3,13 +3,14 @@ package web
 import (
 	"fmt"
 	"log"
-	"regexp"
 	"strings"
 
-	"github.com/Azure/azure-sdk-for-go/services/web/mgmt/2019-08-01/web"
+	"github.com/Azure/azure-sdk-for-go/services/web/mgmt/2020-06-01/web"
 	"github.com/hashicorp/terraform-plugin-sdk/helper/schema"
 	"github.com/hashicorp/terraform-plugin-sdk/helper/validation"
-	"github.com/terraform-providers/terraform-provider-azurerm/azurerm/helpers/suppress"
+	"github.com/terraform-providers/terraform-provider-azurerm/azurerm/internal/services/msi/parse"
+	"github.com/terraform-providers/terraform-provider-azurerm/azurerm/internal/services/msi/validate"
+	"github.com/terraform-providers/terraform-provider-azurerm/azurerm/internal/tf/suppress"
 	"github.com/terraform-providers/terraform-provider-azurerm/azurerm/utils"
 )
 
@@ -169,11 +170,13 @@ func schemaAppServiceAuthSettings() *schema.Schema {
 					Type:     schema.TypeString,
 					Optional: true,
 					ValidateFunc: validation.StringInSlice([]string{
-						string(web.AzureActiveDirectory),
-						string(web.Facebook),
-						string(web.Google),
-						string(web.MicrosoftAccount),
-						string(web.Twitter),
+						string(web.BuiltInAuthenticationProviderAzureActiveDirectory),
+						string(web.BuiltInAuthenticationProviderFacebook),
+						// TODO: add GitHub Auth when API bump merged
+						// string(web.BuiltInAuthenticationProviderGithub),
+						string(web.BuiltInAuthenticationProviderGoogle),
+						string(web.BuiltInAuthenticationProviderMicrosoftAccount),
+						string(web.BuiltInAuthenticationProviderTwitter),
 					}, false),
 				},
 
@@ -237,7 +240,7 @@ func schemaAppServiceIdentity() *schema.Schema {
 					MinItems: 1,
 					Elem: &schema.Schema{
 						Type:         schema.TypeString,
-						ValidateFunc: validation.NoZeroValues,
+						ValidateFunc: validate.UserAssignedIdentityID,
 					},
 				},
 
@@ -299,6 +302,7 @@ func schemaAppServiceSiteConfig() *schema.Schema {
 					ValidateFunc: validation.StringInSlice([]string{
 						"v2.0",
 						"v4.0",
+						"v5.0",
 					}, true),
 					DiffSuppressFunc: suppress.CaseDifference,
 				},
@@ -320,11 +324,9 @@ func schemaAppServiceSiteConfig() *schema.Schema {
 				"scm_ip_restriction": schemaAppServiceIpRestriction(),
 
 				"java_version": {
-					Type:     schema.TypeString,
-					Optional: true,
-					ValidateFunc: validation.StringMatch(
-						regexp.MustCompile(`^(1\.7|1\.8|11)`),
-						`Invalid Java version provided`),
+					Type:         schema.TypeString,
+					Optional:     true,
+					ValidateFunc: validation.StringInSlice([]string{"1.7", "1.8", "11"}, false),
 				},
 
 				"java_container": {
@@ -370,6 +372,7 @@ func schemaAppServiceSiteConfig() *schema.Schema {
 						"7.1",
 						"7.2",
 						"7.3",
+						"7.4",
 					}, false),
 				},
 
@@ -449,6 +452,13 @@ func schemaAppServiceSiteConfig() *schema.Schema {
 				"health_check_path": {
 					Type:     schema.TypeString,
 					Optional: true,
+				},
+
+				"number_of_workers": {
+					Type:         schema.TypeInt,
+					Optional:     true,
+					ValidateFunc: validation.IntBetween(1, 100),
+					Computed:     true,
 				},
 
 				"linux_fx_version": {
@@ -571,6 +581,7 @@ func schemaAppServiceLogsConfig() *schema.Schema {
 									},
 								},
 								ConflictsWith: []string{"logs.0.http_logs.0.azure_blob_storage"},
+								AtLeastOneOf:  []string{"logs.0.http_logs.0.azure_blob_storage", "logs.0.http_logs.0.file_system"},
 							},
 							"azure_blob_storage": {
 								Type:     schema.TypeList,
@@ -590,9 +601,20 @@ func schemaAppServiceLogsConfig() *schema.Schema {
 									},
 								},
 								ConflictsWith: []string{"logs.0.http_logs.0.file_system"},
+								AtLeastOneOf:  []string{"logs.0.http_logs.0.azure_blob_storage", "logs.0.http_logs.0.file_system"},
 							},
 						},
 					},
+				},
+				"detailed_error_messages_enabled": {
+					Type:     schema.TypeBool,
+					Optional: true,
+					Default:  false,
+				},
+				"failed_request_tracing_enabled": {
+					Type:     schema.TypeBool,
+					Optional: true,
+					Default:  false,
 				},
 			},
 		},
@@ -760,6 +782,11 @@ func schemaAppServiceDataSourceSiteConfig() *schema.Schema {
 					Computed: true,
 				},
 
+				"number_of_workers": {
+					Type:     schema.TypeInt,
+					Computed: true,
+				},
+
 				"linux_fx_version": {
 					Type:     schema.TypeString,
 					Computed: true,
@@ -808,21 +835,17 @@ func schemaAppServiceIpRestriction() *schema.Schema {
 				"ip_address": {
 					Type:         schema.TypeString,
 					Optional:     true,
-					ValidateFunc: validation.IsCIDR,
+					ValidateFunc: validation.StringIsNotEmpty,
 				},
 
-				"subnet_id": {
-					// TODO - Remove in 3.0
+				"service_tag": {
 					Type:         schema.TypeString,
 					Optional:     true,
-					Computed:     true,
 					ValidateFunc: validation.StringIsNotEmpty,
-					Deprecated:   "This field has been deprecated in favour of `virtual_network_subnet_id` and will be removed in a future version of the provider",
 				},
 
 				"virtual_network_subnet_id": {
 					Type:         schema.TypeString,
-					Computed:     true, // TODO Remove `Computed` in 3.0
 					Optional:     true,
 					ValidateFunc: validation.StringIsNotEmpty,
 				},
@@ -850,6 +873,63 @@ func schemaAppServiceIpRestriction() *schema.Schema {
 						"Deny",
 					}, false),
 				},
+
+				"headers": {
+					Type:       schema.TypeList,
+					Optional:   true,
+					Computed:   true,
+					MaxItems:   1,
+					ConfigMode: schema.SchemaConfigModeAttr,
+					Elem: &schema.Resource{
+						Schema: map[string]*schema.Schema{
+
+							// lintignore:S018
+							"x_forwarded_host": {
+								Type:     schema.TypeSet,
+								Optional: true,
+								MaxItems: 8,
+								Elem: &schema.Schema{
+									Type: schema.TypeString,
+								},
+							},
+
+							// lintignore:S018
+							"x_forwarded_for": {
+								Type:     schema.TypeSet,
+								Optional: true,
+								MaxItems: 8,
+								Elem: &schema.Schema{
+									Type:         schema.TypeString,
+									ValidateFunc: validation.IsCIDR,
+								},
+							},
+
+							// lintignore:S018
+							"x_azure_fdid": {
+								Type:     schema.TypeSet,
+								Optional: true,
+								MaxItems: 8,
+								Elem: &schema.Schema{
+									Type:         schema.TypeString,
+									ValidateFunc: validation.IsUUID,
+								},
+							},
+
+							// lintignore:S018
+							"x_fd_health_probe": {
+								Type:     schema.TypeSet,
+								Optional: true,
+								MaxItems: 1,
+								Elem: &schema.Schema{
+									Type: schema.TypeString,
+									ValidateFunc: validation.StringInSlice([]string{
+										"1",
+									}, false),
+								},
+							},
+						},
+					},
+				},
 			},
 		},
 	}
@@ -865,23 +945,27 @@ func schemaAppServiceDataSourceIpRestriction() *schema.Schema {
 					Type:     schema.TypeString,
 					Computed: true,
 				},
-				"subnet_id": {
-					// TODO - Remove in 3.0
+
+				"service_tag": {
 					Type:     schema.TypeString,
 					Computed: true,
 				},
+
 				"virtual_network_subnet_id": {
 					Type:     schema.TypeString,
 					Computed: true,
 				},
+
 				"name": {
 					Type:     schema.TypeString,
 					Computed: true,
 				},
+
 				"priority": {
 					Type:     schema.TypeInt,
 					Computed: true,
 				},
+
 				"action": {
 					Type:     schema.TypeString,
 					Computed: true,
@@ -1332,6 +1416,13 @@ func flattenAppServiceLogs(input *web.SiteLogsConfigProperties) []interface{} {
 	}
 	result["http_logs"] = httpLogs
 
+	if input.DetailedErrorMessages != nil && input.DetailedErrorMessages.Enabled != nil {
+		result["detailed_error_messages_enabled"] = *input.DetailedErrorMessages.Enabled
+	}
+	if input.FailedRequestsTracing != nil && input.FailedRequestsTracing.Enabled != nil {
+		result["failed_request_tracing_enabled"] = *input.FailedRequestsTracing.Enabled
+	}
+
 	return append(results, result)
 }
 
@@ -1349,9 +1440,12 @@ func expandAppServiceLogs(input interface{}) web.SiteLogsConfigProperties {
 		appLogsConfigs := v.([]interface{})
 
 		for _, config := range appLogsConfigs {
-			appLogsConfig := config.(map[string]interface{})
-
 			logs.ApplicationLogs = &web.ApplicationLogsConfig{}
+
+			if config == nil {
+				continue
+			}
+			appLogsConfig := config.(map[string]interface{})
 
 			if v, ok := appLogsConfig["file_system_level"]; ok {
 				logs.ApplicationLogs.FileSystem = &web.FileSystemApplicationLogsConfig{
@@ -1379,9 +1473,12 @@ func expandAppServiceLogs(input interface{}) web.SiteLogsConfigProperties {
 		httpLogsConfigs := v.([]interface{})
 
 		for _, config := range httpLogsConfigs {
-			httpLogsConfig := config.(map[string]interface{})
-
 			logs.HTTPLogs = &web.HTTPLogsConfig{}
+
+			if config == nil {
+				continue
+			}
+			httpLogsConfig := config.(map[string]interface{})
 
 			if v, ok := httpLogsConfig["file_system"]; ok {
 				fileSystemConfigs := v.([]interface{})
@@ -1413,6 +1510,18 @@ func expandAppServiceLogs(input interface{}) web.SiteLogsConfigProperties {
 		}
 	}
 
+	if v, ok := config["detailed_error_messages_enabled"]; ok {
+		logs.DetailedErrorMessages = &web.EnabledConfig{
+			Enabled: utils.Bool(v.(bool)),
+		}
+	}
+
+	if v, ok := config["failed_request_tracing_enabled"]; ok {
+		logs.FailedRequestsTracing = &web.EnabledConfig{
+			Enabled: utils.Bool(v.(bool)),
+		}
+	}
+
 	return logs
 }
 
@@ -1439,9 +1548,9 @@ func expandAppServiceIdentity(input []interface{}) *web.ManagedServiceIdentity {
 	return &managedServiceIdentity
 }
 
-func flattenAppServiceIdentity(identity *web.ManagedServiceIdentity) []interface{} {
+func flattenAppServiceIdentity(identity *web.ManagedServiceIdentity) ([]interface{}, error) {
 	if identity == nil {
-		return make([]interface{}, 0)
+		return make([]interface{}, 0), nil
 	}
 
 	principalId := ""
@@ -1457,7 +1566,11 @@ func flattenAppServiceIdentity(identity *web.ManagedServiceIdentity) []interface
 	identityIds := make([]string, 0)
 	if identity.UserAssignedIdentities != nil {
 		for key := range identity.UserAssignedIdentities {
-			identityIds = append(identityIds, key)
+			parsedId, err := parse.UserAssignedIdentityID(key)
+			if err != nil {
+				return nil, err
+			}
+			identityIds = append(identityIds, parsedId.ID())
 		}
 	}
 
@@ -1468,7 +1581,7 @@ func flattenAppServiceIdentity(identity *web.ManagedServiceIdentity) []interface
 			"tenant_id":    tenantId,
 			"type":         string(identity.Type),
 		},
-	}
+	}, nil
 }
 
 func expandAppServiceSiteConfig(input interface{}) (*web.SiteConfig, error) {
@@ -1594,6 +1707,10 @@ func expandAppServiceSiteConfig(input interface{}) (*web.SiteConfig, error) {
 		siteConfig.HealthCheckPath = utils.String(v.(string))
 	}
 
+	if v, ok := config["number_of_workers"]; ok && v.(int) != 0 {
+		siteConfig.NumberOfWorkers = utils.Int32(int32(v.(int)))
+	}
+
 	if v, ok := config["min_tls_version"]; ok {
 		siteConfig.MinTLSVersion = web.SupportedTLSVersions(v.(string))
 	}
@@ -1707,6 +1824,10 @@ func flattenAppServiceSiteConfig(input *web.SiteConfig) []interface{} {
 		result["health_check_path"] = *input.HealthCheckPath
 	}
 
+	if input.NumberOfWorkers != nil {
+		result["number_of_workers"] = *input.NumberOfWorkers
+	}
+
 	result["min_tls_version"] = string(input.MinTLSVersion)
 
 	result["cors"] = FlattenWebCorsSettings(input.Cors)
@@ -1731,25 +1852,41 @@ func flattenAppServiceIpRestriction(input *[]web.IPSecurityRestriction) []interf
 			if *ip == "Any" {
 				continue
 			} else {
-				restriction["ip_address"] = *ip
+				switch v.Tag {
+				case web.ServiceTag:
+					restriction["service_tag"] = *ip
+				default:
+					restriction["ip_address"] = *ip
+				}
 			}
 		}
 
-		if subnetId := v.VnetSubnetResourceID; subnetId != nil {
-			restriction["virtual_network_subnet_id"] = subnetId
-			restriction["subnet_id"] = subnetId
+		subnetId := ""
+		if subnetIdRaw := v.VnetSubnetResourceID; subnetIdRaw != nil {
+			subnetId = *subnetIdRaw
 		}
+		restriction["virtual_network_subnet_id"] = subnetId
 
-		if name := v.Name; name != nil {
-			restriction["name"] = *name
+		name := ""
+		if nameRaw := v.Name; nameRaw != nil {
+			name = *nameRaw
 		}
+		restriction["name"] = name
 
-		if priority := v.Priority; priority != nil {
-			restriction["priority"] = *priority
+		priority := 0
+		if priorityRaw := v.Priority; priorityRaw != nil {
+			priority = int(*priorityRaw)
 		}
+		restriction["priority"] = priority
 
-		if action := v.Action; action != nil {
-			restriction["action"] = *action
+		action := ""
+		if actionRaw := v.Action; actionRaw != nil {
+			action = *actionRaw
+		}
+		restriction["action"] = action
+
+		if headers := v.Headers; headers != nil {
+			restriction["headers"] = flattenHeaders(headers)
 		}
 
 		restrictions = append(restrictions, restriction)
@@ -1821,24 +1958,22 @@ func expandAppServiceIpRestriction(input interface{}) ([]web.IPSecurityRestricti
 		ipAddress := restriction["ip_address"].(string)
 		vNetSubnetID := ""
 
-		if subnetID, ok := restriction["subnet_id"]; ok {
+		if subnetID, ok := restriction["virtual_network_subnet_id"]; ok && subnetID != "" {
 			vNetSubnetID = subnetID.(string)
 		}
 
-		if subnetID, ok := restriction["virtual_network_subnet_id"]; ok {
-			vNetSubnetID = subnetID.(string)
-		}
+		serviceTag := restriction["service_tag"].(string)
 
 		name := restriction["name"].(string)
 		priority := restriction["priority"].(int)
 		action := restriction["action"].(string)
 
-		if vNetSubnetID != "" && ipAddress != "" {
-			return nil, fmt.Errorf("only one of `ip_address` or `virtual_network_subnet_id` can be set for an IP restriction")
+		if vNetSubnetID != "" && ipAddress != "" && serviceTag != "" {
+			return nil, fmt.Errorf("only one of `ip_address`, `service_tag` or `virtual_network_subnet_id` can be set for an IP restriction")
 		}
 
-		if vNetSubnetID == "" && ipAddress == "" {
-			return nil, fmt.Errorf("one of `ip_address` or `virtual_network_subnet_id` must be set for an IP restriction")
+		if vNetSubnetID == "" && ipAddress == "" && serviceTag == "" {
+			return nil, fmt.Errorf("one of `ip_address`, `service_tag` or `virtual_network_subnet_id` must be set for an IP restriction")
 		}
 
 		ipSecurityRestriction := web.IPSecurityRestriction{}
@@ -1848,6 +1983,11 @@ func expandAppServiceIpRestriction(input interface{}) ([]web.IPSecurityRestricti
 
 		if ipAddress != "" {
 			ipSecurityRestriction.IPAddress = &ipAddress
+		}
+
+		if serviceTag != "" {
+			ipSecurityRestriction.IPAddress = &serviceTag
+			ipSecurityRestriction.Tag = web.ServiceTag
 		}
 
 		if vNetSubnetID != "" {
@@ -1865,9 +2005,61 @@ func expandAppServiceIpRestriction(input interface{}) ([]web.IPSecurityRestricti
 		if action != "" {
 			ipSecurityRestriction.Action = &action
 		}
+		if headers, ok := restriction["headers"]; ok {
+			ipSecurityRestriction.Headers = expandHeaders(headers.([]interface{}))
+		}
 
 		restrictions = append(restrictions, ipSecurityRestriction)
 	}
 
 	return restrictions, nil
+}
+
+func flattenHeaders(input map[string][]string) []interface{} {
+	output := make([]interface{}, 0)
+	headers := make(map[string]interface{})
+	if input == nil {
+		return output
+	}
+
+	if forwardedHost, ok := input["x-forwarded-host"]; ok && len(forwardedHost) > 0 {
+		headers["x_forwarded_host"] = forwardedHost
+	}
+	if forwardedFor, ok := input["x-forwarded-for"]; ok && len(forwardedFor) > 0 {
+		headers["x_forwarded_for"] = forwardedFor
+	}
+	if fdids, ok := input["x-azure-fdid"]; ok && len(fdids) > 0 {
+		headers["x_azure_fdid"] = fdids
+	}
+	if healthProbe, ok := input["x-fd-healthprobe"]; ok && len(healthProbe) > 0 {
+		headers["x_fd_health_probe"] = healthProbe
+	}
+
+	return append(output, headers)
+}
+
+func expandHeaders(input interface{}) map[string][]string {
+	output := make(map[string][]string)
+
+	for _, r := range input.([]interface{}) {
+		if r == nil {
+			continue
+		}
+
+		val := r.(map[string]interface{})
+		if raw := val["x_forwarded_host"].(*schema.Set).List(); len(raw) > 0 {
+			output["x-forwarded-host"] = *utils.ExpandStringSlice(raw)
+		}
+		if raw := val["x_forwarded_for"].(*schema.Set).List(); len(raw) > 0 {
+			output["x-forwarded-for"] = *utils.ExpandStringSlice(raw)
+		}
+		if raw := val["x_azure_fdid"].(*schema.Set).List(); len(raw) > 0 {
+			output["x-azure-fdid"] = *utils.ExpandStringSlice(raw)
+		}
+		if raw := val["x_fd_health_probe"].(*schema.Set).List(); len(raw) > 0 {
+			output["x-fd-healthprobe"] = *utils.ExpandStringSlice(raw)
+		}
+	}
+
+	return output
 }

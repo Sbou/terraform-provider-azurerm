@@ -5,32 +5,41 @@ import (
 	"fmt"
 	"time"
 
-	"github.com/Azure/azure-sdk-for-go/services/containerregistry/mgmt/2019-05-01/containerregistry"
 	"github.com/Azure/azure-sdk-for-go/services/machinelearningservices/mgmt/2020-04-01/machinelearningservices"
-	"github.com/Azure/azure-sdk-for-go/services/storage/mgmt/2019-06-01/storage"
+	"github.com/Azure/azure-sdk-for-go/services/preview/containerregistry/mgmt/2020-11-01-preview/containerregistry"
+	"github.com/Azure/azure-sdk-for-go/services/storage/mgmt/2021-01-01/storage"
 	"github.com/hashicorp/terraform-plugin-sdk/helper/schema"
 	"github.com/hashicorp/terraform-plugin-sdk/helper/validation"
 	"github.com/terraform-providers/terraform-provider-azurerm/azurerm/helpers/azure"
-	"github.com/terraform-providers/terraform-provider-azurerm/azurerm/helpers/suppress"
 	"github.com/terraform-providers/terraform-provider-azurerm/azurerm/helpers/tf"
 	"github.com/terraform-providers/terraform-provider-azurerm/azurerm/internal/clients"
 	keyVaultValidate "github.com/terraform-providers/terraform-provider-azurerm/azurerm/internal/services/keyvault/validate"
 	"github.com/terraform-providers/terraform-provider-azurerm/azurerm/internal/services/machinelearning/parse"
 	"github.com/terraform-providers/terraform-provider-azurerm/azurerm/internal/services/machinelearning/validate"
 	"github.com/terraform-providers/terraform-provider-azurerm/azurerm/internal/tags"
-	azSchema "github.com/terraform-providers/terraform-provider-azurerm/azurerm/internal/tf/schema"
+	"github.com/terraform-providers/terraform-provider-azurerm/azurerm/internal/tf/pluginsdk"
+	"github.com/terraform-providers/terraform-provider-azurerm/azurerm/internal/tf/suppress"
 	"github.com/terraform-providers/terraform-provider-azurerm/azurerm/internal/timeouts"
 	"github.com/terraform-providers/terraform-provider-azurerm/azurerm/utils"
 )
 
-func resourceArmMachineLearningWorkspace() *schema.Resource {
-	return &schema.Resource{
-		Create: resourceArmMachineLearningWorkspaceCreate,
-		Read:   resourceArmMachineLearningWorkspaceRead,
-		Update: resourceArmMachineLearningWorkspaceUpdate,
-		Delete: resourceArmMachineLearningWorkspaceDelete,
+// TODO -- remove this type when issue https://github.com/Azure/azure-rest-api-specs/issues/13546 is resolved
+type WorkspaceSku string
 
-		Importer: azSchema.ValidateResourceIDPriorToImport(func(id string) error {
+const (
+	Basic WorkspaceSku = "Basic"
+	// TODO -- remove Enterprise in 3.0 which has been deprecated here: https://docs.microsoft.com/en-us/azure/machine-learning/concept-workspace#what-happened-to-enterprise-edition
+	Enterprise WorkspaceSku = "Enterprise"
+)
+
+func resourceMachineLearningWorkspace() *schema.Resource {
+	return &schema.Resource{
+		Create: resourceMachineLearningWorkspaceCreate,
+		Read:   resourceMachineLearningWorkspaceRead,
+		Update: resourceMachineLearningWorkspaceUpdate,
+		Delete: resourceMachineLearningWorkspaceDelete,
+
+		Importer: pluginsdk.ImporterValidatingResourceId(func(id string) error {
 			_, err := parse.WorkspaceID(id)
 			return err
 		}),
@@ -68,7 +77,7 @@ func resourceArmMachineLearningWorkspace() *schema.Resource {
 				Type:         schema.TypeString,
 				Required:     true,
 				ForceNew:     true,
-				ValidateFunc: keyVaultValidate.KeyVaultID,
+				ValidateFunc: keyVaultValidate.VaultID,
 				// TODO -- remove when issue https://github.com/Azure/azure-rest-api-specs/issues/8323 is addressed
 				DiffSuppressFunc: suppress.CaseDifference,
 			},
@@ -138,8 +147,9 @@ func resourceArmMachineLearningWorkspace() *schema.Resource {
 				Optional: true,
 				Default:  "Basic",
 				ValidateFunc: validation.StringInSlice([]string{
-					"Basic",
-					"Enterprise",
+					string(Basic),
+					// TODO -- remove Enterprise in 3.0 which has been deprecated here: https://docs.microsoft.com/en-us/azure/machine-learning/concept-workspace#what-happened-to-enterprise-edition
+					string(Enterprise),
 				}, true),
 			},
 
@@ -148,7 +158,7 @@ func resourceArmMachineLearningWorkspace() *schema.Resource {
 	}
 }
 
-func resourceArmMachineLearningWorkspaceCreate(d *schema.ResourceData, meta interface{}) error {
+func resourceMachineLearningWorkspaceCreate(d *schema.ResourceData, meta interface{}) error {
 	client := meta.(*clients.Client).MachineLearning.WorkspacesClient
 	ctx, cancel := timeouts.ForCreate(meta.(*clients.Client).StopContext, d)
 	defer cancel()
@@ -182,7 +192,7 @@ func resourceArmMachineLearningWorkspaceCreate(d *schema.ResourceData, meta inte
 			Name: utils.String(skuName),
 			Tier: utils.String(skuName),
 		},
-		Identity: expandArmMachineLearningWorkspaceIdentity(d.Get("identity").([]interface{})),
+		Identity: expandMachineLearningWorkspaceIdentity(d.Get("identity").([]interface{})),
 		WorkspaceProperties: &machinelearningservices.WorkspaceProperties{
 			StorageAccount:      &storageAccountId,
 			ApplicationInsights: &applicationInsightsId,
@@ -207,12 +217,12 @@ func resourceArmMachineLearningWorkspaceCreate(d *schema.ResourceData, meta inte
 	}
 
 	accountsClient := meta.(*clients.Client).Storage.AccountsClient
-	if err := validateStorageAccount(ctx, accountsClient, storageAccountId); err != nil {
+	if err := validateStorageAccount(ctx, *accountsClient, storageAccountId); err != nil {
 		return fmt.Errorf("Error creating Machine Learning Workspace %q (Resource Group %q): %+v", name, resGroup, err)
 	}
 
 	registriesClient := meta.(*clients.Client).Containers.RegistriesClient
-	if err := validateContainerRegistry(ctx, registriesClient, workspace.ContainerRegistry); err != nil {
+	if err := validateContainerRegistry(ctx, *registriesClient, workspace.ContainerRegistry); err != nil {
 		return fmt.Errorf("Error creating Machine Learning Workspace %q (Resource Group %q): %+v", name, resGroup, err)
 	}
 
@@ -236,10 +246,10 @@ func resourceArmMachineLearningWorkspaceCreate(d *schema.ResourceData, meta inte
 
 	d.SetId(*resp.ID)
 
-	return resourceArmMachineLearningWorkspaceRead(d, meta)
+	return resourceMachineLearningWorkspaceRead(d, meta)
 }
 
-func resourceArmMachineLearningWorkspaceRead(d *schema.ResourceData, meta interface{}) error {
+func resourceMachineLearningWorkspaceRead(d *schema.ResourceData, meta interface{}) error {
 	client := meta.(*clients.Client).MachineLearning.WorkspacesClient
 	ctx, cancel := timeouts.ForRead(meta.(*clients.Client).StopContext, d)
 	defer cancel()
@@ -279,14 +289,14 @@ func resourceArmMachineLearningWorkspaceRead(d *schema.ResourceData, meta interf
 		d.Set("high_business_impact", props.HbiWorkspace)
 	}
 
-	if err := d.Set("identity", flattenArmMachineLearningWorkspaceIdentity(resp.Identity)); err != nil {
+	if err := d.Set("identity", flattenMachineLearningWorkspaceIdentity(resp.Identity)); err != nil {
 		return fmt.Errorf("Error flattening identity on Workspace %q (Resource Group %q): %+v", id.Name, id.ResourceGroup, err)
 	}
 
 	return tags.FlattenAndSet(d, resp.Tags)
 }
 
-func resourceArmMachineLearningWorkspaceUpdate(d *schema.ResourceData, meta interface{}) error {
+func resourceMachineLearningWorkspaceUpdate(d *schema.ResourceData, meta interface{}) error {
 	client := meta.(*clients.Client).MachineLearning.WorkspacesClient
 	ctx, cancel := timeouts.ForUpdate(meta.(*clients.Client).StopContext, d)
 	defer cancel()
@@ -324,10 +334,10 @@ func resourceArmMachineLearningWorkspaceUpdate(d *schema.ResourceData, meta inte
 		return fmt.Errorf("Error updating Machine Learning Workspace %q (Resource Group %q): %+v", id.Name, id.ResourceGroup, err)
 	}
 
-	return resourceArmMachineLearningWorkspaceRead(d, meta)
+	return resourceMachineLearningWorkspaceRead(d, meta)
 }
 
-func resourceArmMachineLearningWorkspaceDelete(d *schema.ResourceData, meta interface{}) error {
+func resourceMachineLearningWorkspaceDelete(d *schema.ResourceData, meta interface{}) error {
 	client := meta.(*clients.Client).MachineLearning.WorkspacesClient
 	ctx, cancel := timeouts.ForDelete(meta.(*clients.Client).StopContext, d)
 	defer cancel()
@@ -349,7 +359,7 @@ func resourceArmMachineLearningWorkspaceDelete(d *schema.ResourceData, meta inte
 	return nil
 }
 
-func validateStorageAccount(ctx context.Context, client *storage.AccountsClient, accountID string) error {
+func validateStorageAccount(ctx context.Context, client storage.AccountsClient, accountID string) error {
 	if accountID == "" {
 		return fmt.Errorf("Error validating Storage Account: Empty ID")
 	}
@@ -374,7 +384,7 @@ func validateStorageAccount(ctx context.Context, client *storage.AccountsClient,
 	return nil
 }
 
-func validateContainerRegistry(ctx context.Context, client *containerregistry.RegistriesClient, acrID *string) error {
+func validateContainerRegistry(ctx context.Context, client containerregistry.RegistriesClient, acrID *string) error {
 	if acrID == nil {
 		return nil
 	}
@@ -387,6 +397,8 @@ func validateContainerRegistry(ctx context.Context, client *containerregistry.Re
 
 	acrName := id.Path["registries"]
 	resourceGroup := id.ResourceGroup
+	client.SubscriptionID = id.SubscriptionID
+
 	acr, err := client.Get(ctx, resourceGroup, acrName)
 	if err != nil {
 		return fmt.Errorf("Error validating Container Registry %q (Resource Group %q): %+v", acrName, resourceGroup, err)
@@ -398,7 +410,7 @@ func validateContainerRegistry(ctx context.Context, client *containerregistry.Re
 	return nil
 }
 
-func expandArmMachineLearningWorkspaceIdentity(input []interface{}) *machinelearningservices.Identity {
+func expandMachineLearningWorkspaceIdentity(input []interface{}) *machinelearningservices.Identity {
 	if len(input) == 0 {
 		return nil
 	}
@@ -414,7 +426,7 @@ func expandArmMachineLearningWorkspaceIdentity(input []interface{}) *machinelear
 	return &identity
 }
 
-func flattenArmMachineLearningWorkspaceIdentity(identity *machinelearningservices.Identity) []interface{} {
+func flattenMachineLearningWorkspaceIdentity(identity *machinelearningservices.Identity) []interface{} {
 	if identity == nil {
 		return []interface{}{}
 	}

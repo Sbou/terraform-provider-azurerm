@@ -40,6 +40,8 @@ The following attributes are exported:
 
 * `connection_string` - An `connection_string` block as defined below.
 
+* `custom_domain_verification_id` - An identifier used by App Service to perform domain ownership verification via DNS TXT record.
+
 * `default_hostname` - The default hostname associated with the Function App.
 
 * `enabled` - Is the Function App enabled?
@@ -47,6 +49,8 @@ The following attributes are exported:
 * `identity` - A `identity` block as defined below.
 
 * `site_credential` - A `site_credential` block as defined below, which contains the site-level credentials used to publish to this App Service.
+
+* `client_cert_mode` - The mode of the Function App's client certificates requirement for incoming requests.
 
 * `os_type` - A string indicating the Operating System type for this function app.
 
@@ -79,6 +83,8 @@ An `ip_restriction` block exports the following:
 
 * `ip_address` - The IP Address used for this IP Restriction.
 
+* `service_tag` - The Service Tag used for this IP Restriction.
+
 * `subnet_mask` - The Subnet mask used for this IP Restriction.
 
 * `name` - The name for this IP Restriction.
@@ -91,6 +97,8 @@ An `ip_restriction` block exports the following:
 An `scm_ip_restriction` block exports the following:  
 
 * `ip_address` - The IP Address used for this IP Restriction in CIDR notation.
+
+* `service_tag` - The Service Tag used for this IP Restriction.
 
 * `virtual_network_subnet_id` - The Virtual Network Subnet ID used for this IP Restriction.
 
@@ -113,6 +121,8 @@ A `site_config` block exports the following:
 * `ftps_state` - State of FTP / FTPS service for this AppService.
 
 * `ip_restriction` - One or more `ip_restriction` blocks as defined above.
+
+* `java_version` - Java version hosted by the function app in Azure.
 
 * `pre_warmed_instance_count` - The number of pre-warmed instances for this function app. Only applicable to apps on the Premium plan.
 

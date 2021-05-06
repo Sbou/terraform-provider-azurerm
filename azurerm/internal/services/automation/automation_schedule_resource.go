@@ -1,10 +1,13 @@
 package automation
 
 import (
+	"context"
 	"fmt"
 	"log"
 	"strings"
 	"time"
+
+	"github.com/terraform-providers/terraform-provider-azurerm/azurerm/internal/tf/pluginsdk"
 
 	"github.com/Azure/azure-sdk-for-go/services/preview/automation/mgmt/2018-06-30-preview/automation"
 	"github.com/Azure/go-autorest/autorest/date"
@@ -21,16 +24,15 @@ import (
 	"github.com/terraform-providers/terraform-provider-azurerm/azurerm/utils"
 )
 
-func resourceArmAutomationSchedule() *schema.Resource {
+func resourceAutomationSchedule() *schema.Resource {
 	return &schema.Resource{
-		Create: resourceArmAutomationScheduleCreateUpdate,
-		Read:   resourceArmAutomationScheduleRead,
-		Update: resourceArmAutomationScheduleCreateUpdate,
-		Delete: resourceArmAutomationScheduleDelete,
+		Create: resourceAutomationScheduleCreateUpdate,
+		Read:   resourceAutomationScheduleRead,
+		Update: resourceAutomationScheduleCreateUpdate,
+		Delete: resourceAutomationScheduleDelete,
 
-		Importer: &schema.ResourceImporter{
-			State: schema.ImportStatePassthrough,
-		},
+		// TODO: replace this with an importer which validates the ID during import
+		Importer: pluginsdk.DefaultImporter(),
 
 		Timeouts: &schema.ResourceTimeout{
 			Create: schema.DefaultTimeout(30 * time.Minute),
@@ -44,7 +46,7 @@ func resourceArmAutomationSchedule() *schema.Resource {
 				Type:         schema.TypeString,
 				Required:     true,
 				ForceNew:     true,
-				ValidateFunc: validate.AutomationScheduleName(),
+				ValidateFunc: validate.ScheduleName(),
 			},
 
 			"resource_group_name": azure.SchemaResourceGroupName(),
@@ -53,7 +55,7 @@ func resourceArmAutomationSchedule() *schema.Resource {
 				Type:         schema.TypeString,
 				Required:     true,
 				ForceNew:     true,
-				ValidateFunc: validate.AutomationAccountName(),
+				ValidateFunc: validate.AutomationAccount(),
 			},
 
 			"frequency": {
@@ -172,7 +174,7 @@ func resourceArmAutomationSchedule() *schema.Resource {
 			},
 		},
 
-		CustomizeDiff: func(diff *schema.ResourceDiff, v interface{}) error {
+		CustomizeDiff: pluginsdk.CustomizeDiffShim(func(ctx context.Context, diff *schema.ResourceDiff, v interface{}) error {
 			frequency := strings.ToLower(diff.Get("frequency").(string))
 			interval, _ := diff.GetOk("interval")
 			if frequency == "onetime" && interval.(int) > 0 {
@@ -195,11 +197,11 @@ func resourceArmAutomationSchedule() *schema.Resource {
 			}
 
 			return nil
-		},
+		}),
 	}
 }
 
-func resourceArmAutomationScheduleCreateUpdate(d *schema.ResourceData, meta interface{}) error {
+func resourceAutomationScheduleCreateUpdate(d *schema.ResourceData, meta interface{}) error {
 	client := meta.(*clients.Client).Automation.ScheduleClient
 	ctx, cancel := timeouts.ForCreateUpdate(meta.(*clients.Client).StopContext, d)
 	defer cancel()
@@ -283,10 +285,10 @@ func resourceArmAutomationScheduleCreateUpdate(d *schema.ResourceData, meta inte
 
 	d.SetId(*read.ID)
 
-	return resourceArmAutomationScheduleRead(d, meta)
+	return resourceAutomationScheduleRead(d, meta)
 }
 
-func resourceArmAutomationScheduleRead(d *schema.ResourceData, meta interface{}) error {
+func resourceAutomationScheduleRead(d *schema.ResourceData, meta interface{}) error {
 	client := meta.(*clients.Client).Automation.ScheduleClient
 	ctx, cancel := timeouts.ForRead(meta.(*clients.Client).StopContext, d)
 	defer cancel()
@@ -345,7 +347,7 @@ func resourceArmAutomationScheduleRead(d *schema.ResourceData, meta interface{})
 	return nil
 }
 
-func resourceArmAutomationScheduleDelete(d *schema.ResourceData, meta interface{}) error {
+func resourceAutomationScheduleDelete(d *schema.ResourceData, meta interface{}) error {
 	client := meta.(*clients.Client).Automation.ScheduleClient
 	ctx, cancel := timeouts.ForDelete(meta.(*clients.Client).StopContext, d)
 	defer cancel()
@@ -373,7 +375,7 @@ func expandArmAutomationScheduleAdvanced(d *schema.ResourceData, isUpdate bool) 
 	expandedAdvancedSchedule := automation.AdvancedSchedule{}
 
 	// If frequency is set to `Month` the `week_days` array cannot be set (even empty), otherwise the API returns an error.
-	// During update it can be set and it will not return an error. Workaround for the APIs behavior
+	// During update it can be set and it will not return an error. Workaround for the APIs behaviour
 	if v, ok := d.GetOk("week_days"); ok {
 		weekDays := v.(*schema.Set).List()
 		expandedWeekDays := make([]string, len(weekDays))

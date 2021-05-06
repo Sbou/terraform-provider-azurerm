@@ -3,31 +3,33 @@ package logic
 import (
 	"fmt"
 	"log"
+	"regexp"
 	"time"
 
 	"github.com/Azure/azure-sdk-for-go/services/logic/mgmt/2019-05-01/logic"
 	"github.com/hashicorp/terraform-plugin-sdk/helper/schema"
+	"github.com/hashicorp/terraform-plugin-sdk/helper/validation"
 	"github.com/terraform-providers/terraform-provider-azurerm/azurerm/helpers/azure"
 	"github.com/terraform-providers/terraform-provider-azurerm/azurerm/helpers/tf"
 	"github.com/terraform-providers/terraform-provider-azurerm/azurerm/internal/clients"
 	"github.com/terraform-providers/terraform-provider-azurerm/azurerm/internal/locks"
 	"github.com/terraform-providers/terraform-provider-azurerm/azurerm/internal/services/logic/validate"
 	"github.com/terraform-providers/terraform-provider-azurerm/azurerm/internal/tags"
+	"github.com/terraform-providers/terraform-provider-azurerm/azurerm/internal/tf/pluginsdk"
 	"github.com/terraform-providers/terraform-provider-azurerm/azurerm/internal/timeouts"
 	"github.com/terraform-providers/terraform-provider-azurerm/azurerm/utils"
 )
 
 var logicAppResourceName = "azurerm_logic_app"
 
-func resourceArmLogicAppWorkflow() *schema.Resource {
+func resourceLogicAppWorkflow() *schema.Resource {
 	return &schema.Resource{
-		Create: resourceArmLogicAppWorkflowCreate,
-		Read:   resourceArmLogicAppWorkflowRead,
-		Update: resourceArmLogicAppWorkflowUpdate,
-		Delete: resourceArmLogicAppWorkflowDelete,
-		Importer: &schema.ResourceImporter{
-			State: schema.ImportStatePassthrough,
-		},
+		Create: resourceLogicAppWorkflowCreate,
+		Read:   resourceLogicAppWorkflowRead,
+		Update: resourceLogicAppWorkflowUpdate,
+		Delete: resourceLogicAppWorkflowDelete,
+		// TODO: replace this with an importer which validates the ID during import
+		Importer: pluginsdk.DefaultImporter(),
 
 		Timeouts: &schema.ResourceTimeout{
 			Create: schema.DefaultTimeout(30 * time.Minute),
@@ -41,6 +43,13 @@ func resourceArmLogicAppWorkflow() *schema.Resource {
 				Type:     schema.TypeString,
 				Required: true,
 				ForceNew: true,
+				ValidateFunc: validation.All(
+					validation.StringIsNotEmpty,
+					validation.StringMatch(
+						regexp.MustCompile("^[-()_.A-Za-z0-9]{1,80}$"),
+						"The Logic app name can contain only letters, numbers, periods (.), hyphens (-), brackets (()) and underscores (_), up to 80 characters",
+					),
+				),
 			},
 
 			"location": azure.SchemaLocation(),
@@ -114,7 +123,7 @@ func resourceArmLogicAppWorkflow() *schema.Resource {
 	}
 }
 
-func resourceArmLogicAppWorkflowCreate(d *schema.ResourceData, meta interface{}) error {
+func resourceLogicAppWorkflowCreate(d *schema.ResourceData, meta interface{}) error {
 	client := meta.(*clients.Client).Logic.WorkflowClient
 	ctx, cancel := timeouts.ForCreate(meta.(*clients.Client).StopContext, d)
 	defer cancel()
@@ -184,10 +193,10 @@ func resourceArmLogicAppWorkflowCreate(d *schema.ResourceData, meta interface{})
 
 	d.SetId(*read.ID)
 
-	return resourceArmLogicAppWorkflowRead(d, meta)
+	return resourceLogicAppWorkflowRead(d, meta)
 }
 
-func resourceArmLogicAppWorkflowUpdate(d *schema.ResourceData, meta interface{}) error {
+func resourceLogicAppWorkflowUpdate(d *schema.ResourceData, meta interface{}) error {
 	client := meta.(*clients.Client).Logic.WorkflowClient
 	ctx, cancel := timeouts.ForUpdate(meta.(*clients.Client).StopContext, d)
 	defer cancel()
@@ -241,10 +250,10 @@ func resourceArmLogicAppWorkflowUpdate(d *schema.ResourceData, meta interface{})
 		return fmt.Errorf("Error updating Logic App Workspace %q (Resource Group %q): %+v", name, resourceGroup, err)
 	}
 
-	return resourceArmLogicAppWorkflowRead(d, meta)
+	return resourceLogicAppWorkflowRead(d, meta)
 }
 
-func resourceArmLogicAppWorkflowRead(d *schema.ResourceData, meta interface{}) error {
+func resourceLogicAppWorkflowRead(d *schema.ResourceData, meta interface{}) error {
 	client := meta.(*clients.Client).Logic.WorkflowClient
 	ctx, cancel := timeouts.ForRead(meta.(*clients.Client).StopContext, d)
 	defer cancel()
@@ -323,7 +332,7 @@ func resourceArmLogicAppWorkflowRead(d *schema.ResourceData, meta interface{}) e
 	return tags.FlattenAndSet(d, resp.Tags)
 }
 
-func resourceArmLogicAppWorkflowDelete(d *schema.ResourceData, meta interface{}) error {
+func resourceLogicAppWorkflowDelete(d *schema.ResourceData, meta interface{}) error {
 	client := meta.(*clients.Client).Logic.WorkflowClient
 	ctx, cancel := timeouts.ForDelete(meta.(*clients.Client).StopContext, d)
 	defer cancel()

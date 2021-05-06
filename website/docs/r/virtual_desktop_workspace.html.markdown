@@ -1,5 +1,5 @@
 ---
-subcategory: "DesktopVirtualization"
+subcategory: "Desktop Virtualization"
 layout: "azurerm"
 page_title: "Azure Resource Manager: azurerm_virtual_desktop_workspace"
 description: |-
@@ -19,7 +19,7 @@ provider "azurerm" {
 
 resource "azurerm_resource_group" "example" {
   name     = "rg-example-virtualdesktop"
-  location = "eastus"
+  location = "West Europe"
 }
 
 resource "azurerm_virtual_desktop_workspace" "workspace" {

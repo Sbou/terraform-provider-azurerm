@@ -14,12 +14,13 @@ Manages a SQL Container within a Cosmos DB Account.
 
 ```hcl
 resource "azurerm_cosmosdb_sql_container" "example" {
-  name                = "example-container"
-  resource_group_name = azurerm_cosmosdb_account.example.resource_group_name
-  account_name        = azurerm_cosmosdb_account.example.name
-  database_name       = azurerm_cosmosdb_sql_database.example.name
-  partition_key_path  = "/definition/id"
-  throughput          = 400
+  name                  = "example-container"
+  resource_group_name   = azurerm_cosmosdb_account.example.resource_group_name
+  account_name          = azurerm_cosmosdb_account.example.name
+  database_name         = azurerm_cosmosdb_sql_database.example.name
+  partition_key_path    = "/definition/id"
+  partition_key_version = 1
+  throughput            = 400
 
   indexing_policy {
     indexing_mode = "Consistent"
@@ -55,7 +56,9 @@ The following arguments are supported:
 
 * `database_name` - (Required) The name of the Cosmos DB SQL Database to create the container within. Changing this forces a new resource to be created.
 
-* `partition_key_path` - (Optional) Define a partition key. Changing this forces a new resource to be created.
+* `partition_key_path` - (Required) Define a partition key. Changing this forces a new resource to be created.
+
+* `partition_key_version` - (Optional) Define a partition key version. Changing this forces a new resource to be created. Possible values are `1 `and `2`. This should be set to `2` in order to use large partition keys.
 
 * `unique_key` - (Optional) One or more `unique_key` blocks as defined below. Changing this forces a new resource to be created.
 
@@ -68,6 +71,8 @@ The following arguments are supported:
 * `indexing_policy` - (Optional) An `indexing_policy` block as defined below.
 
 * `default_ttl` - (Optional) The default time to live of SQL container. If missing, items are not expired automatically. If present and the value is set to `-1`, it is equal to infinity, and items don’t expire by default. If present and the value is set to some number `n` – items will expire `n` seconds after their last modified time.
+
+* `conflict_resolution_policy` - (Optional)  A `conflict_resolution_policy` blocks as defined below.
 
 ---
 
@@ -92,7 +97,7 @@ An `indexing_policy` block supports the following:
 
 An `included_path` block supports the following:
 
-* `path` - Path for which the indexing behavior applies to.
+* `path` - Path for which the indexing behaviour applies to.
 
 An `excluded_path` block supports the following:
 
@@ -104,9 +109,19 @@ A `composite_index` block supports the following:
 
 An `index` block supports the following:
 
-* `path` - Path for which the indexing behavior applies to.
+* `path` - Path for which the indexing behaviour applies to.
 
 * `order` - Order of the index. Possible values are `Ascending` or `Descending`.
+
+---
+
+A `conflict_resolution_policy` block supports the following:
+
+* `mode` - (Required) Indicates the conflict resolution mode. Possible values include: `LastWriterWins`, `Custom`.
+
+* `conflict_resolution_path` - (Optional) The conflict resolution path in the case of `LastWriterWins` mode.
+
+* `conflict_resolution_procedure` - (Optional) The procedure to resolve conflicts in the case of `Custom` mode.
 
 ## Attributes Reference
 

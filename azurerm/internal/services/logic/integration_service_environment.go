@@ -8,9 +8,12 @@ import (
 	"strings"
 	"time"
 
+	"github.com/terraform-providers/terraform-provider-azurerm/azurerm/internal/tf/pluginsdk"
+
 	"github.com/Azure/azure-sdk-for-go/services/logic/mgmt/2019-05-01/logic"
-	"github.com/Azure/azure-sdk-for-go/services/network/mgmt/2020-05-01/network"
-	"github.com/hashicorp/terraform-plugin-sdk/helper/customdiff"
+
+	"github.com/Azure/azure-sdk-for-go/services/network/mgmt/2020-07-01/network"
+
 	"github.com/hashicorp/terraform-plugin-sdk/helper/resource"
 	"github.com/hashicorp/terraform-plugin-sdk/helper/schema"
 	"github.com/hashicorp/terraform-plugin-sdk/helper/validation"
@@ -21,20 +24,20 @@ import (
 	"github.com/terraform-providers/terraform-provider-azurerm/azurerm/internal/services/logic/parse"
 	"github.com/terraform-providers/terraform-provider-azurerm/azurerm/internal/services/logic/validate"
 	networkParse "github.com/terraform-providers/terraform-provider-azurerm/azurerm/internal/services/network/parse"
+	networkValidate "github.com/terraform-providers/terraform-provider-azurerm/azurerm/internal/services/network/validate"
 	"github.com/terraform-providers/terraform-provider-azurerm/azurerm/internal/tags"
 	"github.com/terraform-providers/terraform-provider-azurerm/azurerm/internal/timeouts"
 	"github.com/terraform-providers/terraform-provider-azurerm/azurerm/utils"
 )
 
-func resourceArmIntegrationServiceEnvironment() *schema.Resource {
+func resourceIntegrationServiceEnvironment() *schema.Resource {
 	return &schema.Resource{
-		Create: resourceArmIntegrationServiceEnvironmentCreateUpdate,
-		Read:   resourceArmIntegrationServiceEnvironmentRead,
-		Update: resourceArmIntegrationServiceEnvironmentCreateUpdate,
-		Delete: resourceArmIntegrationServiceEnvironmentDelete,
-		Importer: &schema.ResourceImporter{
-			State: schema.ImportStatePassthrough,
-		},
+		Create: resourceIntegrationServiceEnvironmentCreateUpdate,
+		Read:   resourceIntegrationServiceEnvironmentRead,
+		Update: resourceIntegrationServiceEnvironmentCreateUpdate,
+		Delete: resourceIntegrationServiceEnvironmentDelete,
+		// TODO: replace this with an importer which validates the ID during import
+		Importer: pluginsdk.DefaultImporter(),
 
 		Timeouts: &schema.ResourceTimeout{
 			Create: schema.DefaultTimeout(5 * time.Hour),
@@ -93,7 +96,7 @@ func resourceArmIntegrationServiceEnvironment() *schema.Resource {
 				ForceNew: true, // The network configuration subnets cannot be updated after integration service environment is created.
 				Elem: &schema.Schema{
 					Type:         schema.TypeString,
-					ValidateFunc: validate.ValidateSubnetID,
+					ValidateFunc: networkValidate.SubnetID,
 				},
 				MinItems: 4,
 				MaxItems: 4,
@@ -126,8 +129,8 @@ func resourceArmIntegrationServiceEnvironment() *schema.Resource {
 			"tags": tags.Schema(),
 		},
 
-		CustomizeDiff: customdiff.All(
-			customdiff.ForceNewIfChange("sku_name", func(old, new, meta interface{}) bool {
+		CustomizeDiff: pluginsdk.CustomDiffWithAll(
+			pluginsdk.ForceNewIfChange("sku_name", func(ctx context.Context, old, new, meta interface{}) bool {
 				oldSku := strings.Split(old.(string), "_")
 				newSku := strings.Split(new.(string), "_")
 				// The SKU cannot be changed once integration service environment has been provisioned. -> we need ForceNew
@@ -137,7 +140,7 @@ func resourceArmIntegrationServiceEnvironment() *schema.Resource {
 	}
 }
 
-func resourceArmIntegrationServiceEnvironmentCreateUpdate(d *schema.ResourceData, meta interface{}) error {
+func resourceIntegrationServiceEnvironmentCreateUpdate(d *schema.ResourceData, meta interface{}) error {
 	client := meta.(*clients.Client).Logic.IntegrationServiceEnvironmentClient
 	ctx, cancel := timeouts.ForCreate(meta.(*clients.Client).StopContext, d)
 	defer cancel()
@@ -205,10 +208,10 @@ func resourceArmIntegrationServiceEnvironmentCreateUpdate(d *schema.ResourceData
 
 	d.SetId(*resp.ID)
 
-	return resourceArmIntegrationServiceEnvironmentRead(d, meta)
+	return resourceIntegrationServiceEnvironmentRead(d, meta)
 }
 
-func resourceArmIntegrationServiceEnvironmentRead(d *schema.ResourceData, meta interface{}) error {
+func resourceIntegrationServiceEnvironmentRead(d *schema.ResourceData, meta interface{}) error {
 	client := meta.(*clients.Client).Logic.IntegrationServiceEnvironmentClient
 	ctx, cancel := timeouts.ForRead(meta.(*clients.Client).StopContext, d)
 	defer cancel()
@@ -267,7 +270,7 @@ func resourceArmIntegrationServiceEnvironmentRead(d *schema.ResourceData, meta i
 	return tags.FlattenAndSet(d, resp.Tags)
 }
 
-func resourceArmIntegrationServiceEnvironmentDelete(d *schema.ResourceData, meta interface{}) error {
+func resourceIntegrationServiceEnvironmentDelete(d *schema.ResourceData, meta interface{}) error {
 	client := meta.(*clients.Client).Logic.IntegrationServiceEnvironmentClient
 	ctx, cancel := timeouts.ForDelete(meta.(*clients.Client).StopContext, d)
 	defer cancel()
@@ -291,7 +294,7 @@ func resourceArmIntegrationServiceEnvironmentDelete(d *schema.ResourceData, meta
 	// Get subnet IDs before delete
 	subnetIDs := getSubnetIDs(&resp)
 
-	// Not optimal behavior for now
+	// Not optimal behaviour for now
 	// It deletes synchronously and resource is not available anymore after return from delete operation
 	// Next, after return - delete operation is still in progress in the background and is still occupying subnets.
 	// As workaround we are checking on all involved subnets presence of serviceAssociationLink and resourceNavigationLink
@@ -457,7 +460,6 @@ func serviceAssociationLinkExists(ctx context.Context, client *network.ServiceAs
 	}
 
 	resp, err := client.List(ctx, id.ResourceGroup, id.VirtualNetworkName, id.Name)
-
 	if err != nil {
 		if utils.ResponseWasNotFound(resp.Response) {
 			return false, nil
@@ -486,7 +488,6 @@ func resourceNavigationLinkExists(ctx context.Context, client *network.ResourceN
 	}
 
 	resp, err := client.List(ctx, id.ResourceGroup, id.VirtualNetworkName, id.Name)
-
 	if err != nil {
 		if utils.ResponseWasNotFound(resp.Response) {
 			return false, nil

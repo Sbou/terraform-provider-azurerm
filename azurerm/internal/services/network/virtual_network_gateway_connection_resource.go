@@ -5,28 +5,30 @@ import (
 	"log"
 	"time"
 
-	"github.com/Azure/azure-sdk-for-go/services/network/mgmt/2020-05-01/network"
+	"github.com/terraform-providers/terraform-provider-azurerm/azurerm/internal/services/network/parse"
+
+	"github.com/Azure/azure-sdk-for-go/services/network/mgmt/2020-07-01/network"
 	"github.com/hashicorp/terraform-plugin-sdk/helper/schema"
 	"github.com/hashicorp/terraform-plugin-sdk/helper/validation"
 	"github.com/terraform-providers/terraform-provider-azurerm/azurerm/helpers/azure"
-	"github.com/terraform-providers/terraform-provider-azurerm/azurerm/helpers/suppress"
 	"github.com/terraform-providers/terraform-provider-azurerm/azurerm/helpers/tf"
 	"github.com/terraform-providers/terraform-provider-azurerm/azurerm/internal/clients"
 	"github.com/terraform-providers/terraform-provider-azurerm/azurerm/internal/tags"
+	"github.com/terraform-providers/terraform-provider-azurerm/azurerm/internal/tf/pluginsdk"
+	"github.com/terraform-providers/terraform-provider-azurerm/azurerm/internal/tf/suppress"
 	"github.com/terraform-providers/terraform-provider-azurerm/azurerm/internal/timeouts"
 	"github.com/terraform-providers/terraform-provider-azurerm/azurerm/utils"
 )
 
-func resourceArmVirtualNetworkGatewayConnection() *schema.Resource {
+func resourceVirtualNetworkGatewayConnection() *schema.Resource {
 	return &schema.Resource{
-		Create: resourceArmVirtualNetworkGatewayConnectionCreateUpdate,
-		Read:   resourceArmVirtualNetworkGatewayConnectionRead,
-		Update: resourceArmVirtualNetworkGatewayConnectionCreateUpdate,
-		Delete: resourceArmVirtualNetworkGatewayConnectionDelete,
+		Create: resourceVirtualNetworkGatewayConnectionCreateUpdate,
+		Read:   resourceVirtualNetworkGatewayConnectionRead,
+		Update: resourceVirtualNetworkGatewayConnectionCreateUpdate,
+		Delete: resourceVirtualNetworkGatewayConnectionDelete,
 
-		Importer: &schema.ResourceImporter{
-			State: schema.ImportStatePassthrough,
-		},
+		// TODO: replace this with an importer which validates the ID during import
+		Importer: pluginsdk.DefaultImporter(),
 
 		Timeouts: &schema.ResourceTimeout{
 			Create: schema.DefaultTimeout(30 * time.Minute),
@@ -73,6 +75,12 @@ func resourceArmVirtualNetworkGatewayConnection() *schema.Resource {
 				ValidateFunc: validation.StringIsNotEmpty,
 			},
 
+			"dpd_timeout_seconds": {
+				Type:     schema.TypeInt,
+				Optional: true,
+				ForceNew: true,
+			},
+
 			"express_route_circuit_id": {
 				Type:         schema.TypeString,
 				Optional:     true,
@@ -85,6 +93,12 @@ func resourceArmVirtualNetworkGatewayConnection() *schema.Resource {
 				Optional:     true,
 				ForceNew:     true,
 				ValidateFunc: azure.ValidateResourceIDOrEmpty,
+			},
+
+			"local_azure_ip_address_enabled": {
+				Type:     schema.TypeBool,
+				Optional: true,
+				ForceNew: true,
 			},
 
 			"local_network_gateway_id": {
@@ -170,14 +184,14 @@ func resourceArmVirtualNetworkGatewayConnection() *schema.Resource {
 							Required:         true,
 							DiffSuppressFunc: suppress.CaseDifference,
 							ValidateFunc: validation.StringInSlice([]string{
-								string(network.DHGroup1),
-								string(network.DHGroup14),
-								string(network.DHGroup2),
-								string(network.DHGroup2048),
-								string(network.DHGroup24),
-								string(network.ECP256),
-								string(network.ECP384),
-								string(network.None),
+								string(network.DhGroupDHGroup1),
+								string(network.DhGroupDHGroup14),
+								string(network.DhGroupDHGroup2),
+								string(network.DhGroupDHGroup2048),
+								string(network.DhGroupDHGroup24),
+								string(network.DhGroupECP256),
+								string(network.DhGroupECP384),
+								string(network.DhGroupNone),
 							}, true),
 						},
 
@@ -191,6 +205,8 @@ func resourceArmVirtualNetworkGatewayConnection() *schema.Resource {
 								string(network.AES256),
 								string(network.DES),
 								string(network.DES3),
+								string(network.GCMAES128),
+								string(network.GCMAES256),
 							}, true),
 						},
 
@@ -248,9 +264,11 @@ func resourceArmVirtualNetworkGatewayConnection() *schema.Resource {
 								string(network.PfsGroupECP384),
 								string(network.PfsGroupNone),
 								string(network.PfsGroupPFS1),
+								string(network.PfsGroupPFS14),
 								string(network.PfsGroupPFS2),
 								string(network.PfsGroupPFS2048),
 								string(network.PfsGroupPFS24),
+								string(network.PfsGroupPFSMM),
 							}, true),
 						},
 
@@ -276,7 +294,7 @@ func resourceArmVirtualNetworkGatewayConnection() *schema.Resource {
 	}
 }
 
-func resourceArmVirtualNetworkGatewayConnectionCreateUpdate(d *schema.ResourceData, meta interface{}) error {
+func resourceVirtualNetworkGatewayConnectionCreateUpdate(d *schema.ResourceData, meta interface{}) error {
 	client := meta.(*clients.Client).Network.VnetGatewayConnectionsClient
 	ctx, cancel := timeouts.ForCreateUpdate(meta.(*clients.Client).StopContext, d)
 	defer cancel()
@@ -302,7 +320,7 @@ func resourceArmVirtualNetworkGatewayConnectionCreateUpdate(d *schema.ResourceDa
 	location := azure.NormalizeLocation(d.Get("location").(string))
 	t := d.Get("tags").(map[string]interface{})
 
-	properties, err := getArmVirtualNetworkGatewayConnectionProperties(d)
+	properties, err := getVirtualNetworkGatewayConnectionProperties(d)
 	if err != nil {
 		return err
 	}
@@ -333,10 +351,10 @@ func resourceArmVirtualNetworkGatewayConnectionCreateUpdate(d *schema.ResourceDa
 
 	d.SetId(*read.ID)
 
-	return resourceArmVirtualNetworkGatewayConnectionRead(d, meta)
+	return resourceVirtualNetworkGatewayConnectionRead(d, meta)
 }
 
-func resourceArmVirtualNetworkGatewayConnectionRead(d *schema.ResourceData, meta interface{}) error {
+func resourceVirtualNetworkGatewayConnectionRead(d *schema.ResourceData, meta interface{}) error {
 	client := meta.(*clients.Client).Network.VnetGatewayConnectionsClient
 	ctx, cancel := timeouts.ForRead(meta.(*clients.Client).StopContext, d)
 	defer cancel()
@@ -375,12 +393,20 @@ func resourceArmVirtualNetworkGatewayConnectionRead(d *schema.ResourceData, meta
 		d.Set("authorization_key", conn.AuthorizationKey)
 	}
 
+	if conn.DpdTimeoutSeconds != nil {
+		d.Set("dpd_timeout_seconds", conn.DpdTimeoutSeconds)
+	}
+
 	if conn.Peer != nil {
 		d.Set("express_route_circuit_id", conn.Peer.ID)
 	}
 
 	if conn.VirtualNetworkGateway2 != nil {
 		d.Set("peer_virtual_network_gateway_id", conn.VirtualNetworkGateway2.ID)
+	}
+
+	if conn.UseLocalAzureIPAddress != nil {
+		d.Set("local_azure_ip_address_enabled", conn.UseLocalAzureIPAddress)
 	}
 
 	if conn.LocalNetworkGateway2 != nil {
@@ -410,14 +436,14 @@ func resourceArmVirtualNetworkGatewayConnectionRead(d *schema.ResourceData, meta
 	}
 
 	if conn.IpsecPolicies != nil {
-		ipsecPolicies := flattenArmVirtualNetworkGatewayConnectionIpsecPolicies(conn.IpsecPolicies)
+		ipsecPolicies := flattenVirtualNetworkGatewayConnectionIpsecPolicies(conn.IpsecPolicies)
 
 		if err := d.Set("ipsec_policy", ipsecPolicies); err != nil {
 			return fmt.Errorf("Error setting `ipsec_policy`: %+v", err)
 		}
 	}
 
-	trafficSelectorPolicies := flattenArmVirtualNetworkGatewayConnectionTrafficSelectorPolicies(conn.TrafficSelectorPolicies)
+	trafficSelectorPolicies := flattenVirtualNetworkGatewayConnectionTrafficSelectorPolicies(conn.TrafficSelectorPolicies)
 	if err := d.Set("traffic_selector_policy", trafficSelectorPolicies); err != nil {
 		return fmt.Errorf("Error setting `traffic_selector_policy`: %+v", err)
 	}
@@ -425,7 +451,7 @@ func resourceArmVirtualNetworkGatewayConnectionRead(d *schema.ResourceData, meta
 	return tags.FlattenAndSet(d, resp.Tags)
 }
 
-func resourceArmVirtualNetworkGatewayConnectionDelete(d *schema.ResourceData, meta interface{}) error {
+func resourceVirtualNetworkGatewayConnectionDelete(d *schema.ResourceData, meta interface{}) error {
 	client := meta.(*clients.Client).Network.VnetGatewayConnectionsClient
 	ctx, cancel := timeouts.ForDelete(meta.(*clients.Client).StopContext, d)
 	defer cancel()
@@ -447,7 +473,7 @@ func resourceArmVirtualNetworkGatewayConnectionDelete(d *schema.ResourceData, me
 	return nil
 }
 
-func getArmVirtualNetworkGatewayConnectionProperties(d *schema.ResourceData) (*network.VirtualNetworkGatewayConnectionPropertiesFormat, error) {
+func getVirtualNetworkGatewayConnectionProperties(d *schema.ResourceData) (*network.VirtualNetworkGatewayConnectionPropertiesFormat, error) {
 	connectionType := network.VirtualNetworkGatewayConnectionType(d.Get("type").(string))
 
 	props := &network.VirtualNetworkGatewayConnectionPropertiesFormat{
@@ -460,14 +486,14 @@ func getArmVirtualNetworkGatewayConnectionProperties(d *schema.ResourceData) (*n
 	if v, ok := d.GetOk("virtual_network_gateway_id"); ok {
 		virtualNetworkGatewayId := v.(string)
 
-		_, name, err := resourceGroupAndVirtualNetworkGatewayFromId(virtualNetworkGatewayId)
+		gwid, err := parse.VirtualNetworkGatewayID(virtualNetworkGatewayId)
 		if err != nil {
-			return nil, fmt.Errorf("Error Getting VirtualNetworkGateway Name and Group:: %+v", err)
+			return nil, err
 		}
 
 		props.VirtualNetworkGateway1 = &network.VirtualNetworkGateway{
 			ID:   &virtualNetworkGatewayId,
-			Name: &name,
+			Name: &gwid.Name,
 			VirtualNetworkGatewayPropertiesFormat: &network.VirtualNetworkGatewayPropertiesFormat{
 				IPConfigurations: &[]network.VirtualNetworkGatewayIPConfiguration{},
 			},
@@ -479,6 +505,10 @@ func getArmVirtualNetworkGatewayConnectionProperties(d *schema.ResourceData) (*n
 		props.AuthorizationKey = &authorizationKey
 	}
 
+	if v, ok := d.GetOk("dpd_timeout_seconds"); ok {
+		props.DpdTimeoutSeconds = utils.Int32(int32(v.(int)))
+	}
+
 	if v, ok := d.GetOk("express_route_circuit_id"); ok {
 		expressRouteCircuitId := v.(string)
 		props.Peer = &network.SubResource{
@@ -487,19 +517,21 @@ func getArmVirtualNetworkGatewayConnectionProperties(d *schema.ResourceData) (*n
 	}
 
 	if v, ok := d.GetOk("peer_virtual_network_gateway_id"); ok {
-		peerVirtualNetworkGatewayId := v.(string)
-		_, name, err := resourceGroupAndVirtualNetworkGatewayFromId(peerVirtualNetworkGatewayId)
+		gwid, err := parse.VirtualNetworkGatewayID(v.(string))
 		if err != nil {
-			return nil, fmt.Errorf("Error Getting VirtualNetworkGateway Name and Group:: %+v", err)
+			return nil, err
 		}
-
 		props.VirtualNetworkGateway2 = &network.VirtualNetworkGateway{
-			ID:   &peerVirtualNetworkGatewayId,
-			Name: &name,
+			ID:   utils.String(gwid.ID()),
+			Name: &gwid.Name,
 			VirtualNetworkGatewayPropertiesFormat: &network.VirtualNetworkGatewayPropertiesFormat{
 				IPConfigurations: &[]network.VirtualNetworkGatewayIPConfiguration{},
 			},
 		}
+	}
+
+	if v, ok := d.GetOk("local_azure_ip_address_enabled"); ok {
+		props.UseLocalAzureIPAddress = utils.Bool(v.(bool))
 	}
 
 	if v, ok := d.GetOk("local_network_gateway_id"); ok {
@@ -533,11 +565,11 @@ func getArmVirtualNetworkGatewayConnectionProperties(d *schema.ResourceData) (*n
 	}
 
 	if v, ok := d.GetOk("traffic_selector_policy"); ok {
-		props.TrafficSelectorPolicies = expandArmVirtualNetworkGatewayConnectionTrafficSelectorPolicies(v.([]interface{}))
+		props.TrafficSelectorPolicies = expandVirtualNetworkGatewayConnectionTrafficSelectorPolicies(v.([]interface{}))
 	}
 
 	if v, ok := d.GetOk("ipsec_policy"); ok {
-		props.IpsecPolicies = expandArmVirtualNetworkGatewayConnectionIpsecPolicies(v.([]interface{}))
+		props.IpsecPolicies = expandVirtualNetworkGatewayConnectionIpsecPolicies(v.([]interface{}))
 	}
 
 	if props.ConnectionType == network.ExpressRoute {
@@ -572,7 +604,7 @@ func resourceGroupAndVirtualNetworkGatewayConnectionFromId(virtualNetworkGateway
 	return resGroup, name, nil
 }
 
-func expandArmVirtualNetworkGatewayConnectionIpsecPolicies(schemaIpsecPolicies []interface{}) *[]network.IpsecPolicy {
+func expandVirtualNetworkGatewayConnectionIpsecPolicies(schemaIpsecPolicies []interface{}) *[]network.IpsecPolicy {
 	ipsecPolicies := make([]network.IpsecPolicy, 0, len(schemaIpsecPolicies))
 
 	for _, d := range schemaIpsecPolicies {
@@ -619,7 +651,7 @@ func expandArmVirtualNetworkGatewayConnectionIpsecPolicies(schemaIpsecPolicies [
 	return &ipsecPolicies
 }
 
-func expandArmVirtualNetworkGatewayConnectionTrafficSelectorPolicies(schemaTrafficSelectorPolicies []interface{}) *[]network.TrafficSelectorPolicy {
+func expandVirtualNetworkGatewayConnectionTrafficSelectorPolicies(schemaTrafficSelectorPolicies []interface{}) *[]network.TrafficSelectorPolicy {
 	trafficSelectorPolicies := make([]network.TrafficSelectorPolicy, 0, len(schemaTrafficSelectorPolicies))
 
 	for _, d := range schemaTrafficSelectorPolicies {
@@ -638,7 +670,7 @@ func expandArmVirtualNetworkGatewayConnectionTrafficSelectorPolicies(schemaTraff
 	return &trafficSelectorPolicies
 }
 
-func flattenArmVirtualNetworkGatewayConnectionIpsecPolicies(ipsecPolicies *[]network.IpsecPolicy) []interface{} {
+func flattenVirtualNetworkGatewayConnectionIpsecPolicies(ipsecPolicies *[]network.IpsecPolicy) []interface{} {
 	schemaIpsecPolicies := make([]interface{}, 0)
 
 	if ipsecPolicies != nil {
@@ -667,7 +699,7 @@ func flattenArmVirtualNetworkGatewayConnectionIpsecPolicies(ipsecPolicies *[]net
 	return schemaIpsecPolicies
 }
 
-func flattenArmVirtualNetworkGatewayConnectionTrafficSelectorPolicies(trafficSelectorPolicies *[]network.TrafficSelectorPolicy) []interface{} {
+func flattenVirtualNetworkGatewayConnectionTrafficSelectorPolicies(trafficSelectorPolicies *[]network.TrafficSelectorPolicy) []interface{} {
 	schemaTrafficSelectorPolicies := make([]interface{}, 0)
 
 	if trafficSelectorPolicies != nil {

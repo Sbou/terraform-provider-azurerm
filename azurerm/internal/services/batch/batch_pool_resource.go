@@ -5,30 +5,31 @@ import (
 	"errors"
 	"fmt"
 	"log"
-	"strconv"
 	"strings"
 	"time"
 
-	"github.com/Azure/azure-sdk-for-go/services/batch/mgmt/2019-08-01/batch"
+	"github.com/terraform-providers/terraform-provider-azurerm/azurerm/internal/services/batch/validate"
+
+	"github.com/Azure/azure-sdk-for-go/services/batch/mgmt/2020-03-01/batch"
 	"github.com/hashicorp/go-azure-helpers/response"
 	"github.com/hashicorp/terraform-plugin-sdk/helper/schema"
 	"github.com/hashicorp/terraform-plugin-sdk/helper/validation"
 	"github.com/terraform-providers/terraform-provider-azurerm/azurerm/helpers/azure"
-	"github.com/terraform-providers/terraform-provider-azurerm/azurerm/helpers/suppress"
 	"github.com/terraform-providers/terraform-provider-azurerm/azurerm/helpers/tf"
 	"github.com/terraform-providers/terraform-provider-azurerm/azurerm/internal/clients"
 	"github.com/terraform-providers/terraform-provider-azurerm/azurerm/internal/services/batch/parse"
-	azSchema "github.com/terraform-providers/terraform-provider-azurerm/azurerm/internal/tf/schema"
+	"github.com/terraform-providers/terraform-provider-azurerm/azurerm/internal/tf/pluginsdk"
+	"github.com/terraform-providers/terraform-provider-azurerm/azurerm/internal/tf/suppress"
 	"github.com/terraform-providers/terraform-provider-azurerm/azurerm/internal/timeouts"
 	"github.com/terraform-providers/terraform-provider-azurerm/azurerm/utils"
 )
 
-func resourceArmBatchPool() *schema.Resource {
+func resourceBatchPool() *schema.Resource {
 	return &schema.Resource{
-		Create: resourceArmBatchPoolCreate,
-		Read:   resourceArmBatchPoolRead,
-		Update: resourceArmBatchPoolUpdate,
-		Delete: resourceArmBatchPoolDelete,
+		Create: resourceBatchPoolCreate,
+		Read:   resourceBatchPoolRead,
+		Update: resourceBatchPoolUpdate,
+		Delete: resourceBatchPoolDelete,
 
 		Timeouts: &schema.ResourceTimeout{
 			Create: schema.DefaultTimeout(30 * time.Minute),
@@ -37,8 +38,8 @@ func resourceArmBatchPool() *schema.Resource {
 			Delete: schema.DefaultTimeout(30 * time.Minute),
 		},
 
-		Importer: azSchema.ValidateResourceIDPriorToImport(func(id string) error {
-			_, err := parse.BatchPoolID(id)
+		Importer: pluginsdk.ImporterValidatingResourceId(func(id string) error {
+			_, err := parse.PoolID(id)
 			return err
 		}),
 		Schema: map[string]*schema.Schema{
@@ -46,7 +47,7 @@ func resourceArmBatchPool() *schema.Resource {
 				Type:         schema.TypeString,
 				Required:     true,
 				ForceNew:     true,
-				ValidateFunc: ValidateAzureRMBatchPoolName,
+				ValidateFunc: validate.PoolName,
 			},
 
 			// TODO: make this case sensitive once this API bug has been fixed:
@@ -57,7 +58,7 @@ func resourceArmBatchPool() *schema.Resource {
 				Type:         schema.TypeString,
 				Required:     true,
 				ForceNew:     true,
-				ValidateFunc: ValidateAzureRMBatchAccountName,
+				ValidateFunc: validate.AccountName,
 			},
 			"display_name": {
 				Type:     schema.TypeString,
@@ -135,6 +136,7 @@ func resourceArmBatchPool() *schema.Resource {
 							Type:         schema.TypeString,
 							Optional:     true,
 							ValidateFunc: validation.StringIsNotEmpty,
+							AtLeastOneOf: []string{"container_configuration.0.type", "container_configuration.0.container_image_names", "container_configuration.0.container_registries"},
 						},
 						"container_image_names": {
 							Type:     schema.TypeSet,
@@ -144,6 +146,7 @@ func resourceArmBatchPool() *schema.Resource {
 								Type:         schema.TypeString,
 								ValidateFunc: validation.StringIsNotEmpty,
 							},
+							AtLeastOneOf: []string{"container_configuration.0.type", "container_configuration.0.container_image_names", "container_configuration.0.container_registries"},
 						},
 						"container_registries": {
 							Type:       schema.TypeList,
@@ -173,6 +176,7 @@ func resourceArmBatchPool() *schema.Resource {
 									},
 								},
 							},
+							AtLeastOneOf: []string{"container_configuration.0.type", "container_configuration.0.container_image_names", "container_configuration.0.container_registries"},
 						},
 					},
 				},
@@ -189,6 +193,7 @@ func resourceArmBatchPool() *schema.Resource {
 							Optional:     true,
 							ForceNew:     true,
 							ValidateFunc: azure.ValidateResourceID,
+							AtLeastOneOf: []string{"storage_image_reference.0.id", "storage_image_reference.0.publisher", "storage_image_reference.0.offer", "storage_image_reference.0.sku", "storage_image_reference.0.version"},
 						},
 
 						"publisher": {
@@ -196,6 +201,7 @@ func resourceArmBatchPool() *schema.Resource {
 							Optional:     true,
 							ForceNew:     true,
 							ValidateFunc: validation.StringIsNotEmpty,
+							AtLeastOneOf: []string{"storage_image_reference.0.id", "storage_image_reference.0.publisher", "storage_image_reference.0.offer", "storage_image_reference.0.sku", "storage_image_reference.0.version"},
 						},
 
 						"offer": {
@@ -203,6 +209,7 @@ func resourceArmBatchPool() *schema.Resource {
 							Optional:     true,
 							ForceNew:     true,
 							ValidateFunc: validation.StringIsNotEmpty,
+							AtLeastOneOf: []string{"storage_image_reference.0.id", "storage_image_reference.0.publisher", "storage_image_reference.0.offer", "storage_image_reference.0.sku", "storage_image_reference.0.version"},
 						},
 
 						"sku": {
@@ -211,6 +218,7 @@ func resourceArmBatchPool() *schema.Resource {
 							ForceNew:         true,
 							DiffSuppressFunc: suppress.CaseDifference,
 							ValidateFunc:     validation.StringIsNotEmpty,
+							AtLeastOneOf:     []string{"storage_image_reference.0.id", "storage_image_reference.0.publisher", "storage_image_reference.0.offer", "storage_image_reference.0.sku", "storage_image_reference.0.version"},
 						},
 
 						"version": {
@@ -218,6 +226,7 @@ func resourceArmBatchPool() *schema.Resource {
 							Optional:     true,
 							ForceNew:     true,
 							ValidateFunc: validation.StringIsNotEmpty,
+							AtLeastOneOf: []string{"storage_image_reference.0.id", "storage_image_reference.0.publisher", "storage_image_reference.0.offer", "storage_image_reference.0.sku", "storage_image_reference.0.version"},
 						},
 					},
 				},
@@ -314,8 +323,9 @@ func resourceArmBatchPool() *schema.Resource {
 							Elem: &schema.Resource{
 								Schema: map[string]*schema.Schema{
 									"user_name": {
-										Type:     schema.TypeString,
-										Optional: true,
+										Type:         schema.TypeString,
+										Optional:     true,
+										AtLeastOneOf: []string{"start_task.0.user_identity.0.user_name", "start_task.0.user_identity.0.auto_user"},
 									},
 									"auto_user": {
 										Type:     schema.TypeList,
@@ -343,11 +353,13 @@ func resourceArmBatchPool() *schema.Resource {
 												},
 											},
 										},
+										AtLeastOneOf: []string{"start_task.0.user_identity.0.user_name", "start_task.0.user_identity.0.auto_user"},
 									},
 								},
 							},
 						},
 
+						//lintignore:XS003
 						"resource_file": {
 							Type:     schema.TypeList,
 							Optional: true,
@@ -413,6 +425,15 @@ func resourceArmBatchPool() *schema.Resource {
 							},
 							Set: schema.HashString,
 						},
+						"public_address_provisioning_type": {
+							Type:     schema.TypeString,
+							Optional: true,
+							ValidateFunc: validation.StringInSlice([]string{
+								string(batch.BatchManaged),
+								string(batch.UserManaged),
+								string(batch.NoPublicIPAddresses),
+							}, false),
+						},
 						"endpoint_configuration": {
 							Type:     schema.TypeList,
 							Optional: true,
@@ -447,7 +468,7 @@ func resourceArmBatchPool() *schema.Resource {
 										Type:         schema.TypeString,
 										Required:     true,
 										ForceNew:     true,
-										ValidateFunc: validateFrontendPortRangeRange,
+										ValidateFunc: validate.FrontendPortRange,
 									},
 									"network_security_group_rules": {
 										Type:     schema.TypeList,
@@ -489,7 +510,7 @@ func resourceArmBatchPool() *schema.Resource {
 	}
 }
 
-func resourceArmBatchPoolCreate(d *schema.ResourceData, meta interface{}) error {
+func resourceBatchPoolCreate(d *schema.ResourceData, meta interface{}) error {
 	client := meta.(*clients.Client).Batch.PoolClient
 	ctx, cancel := timeouts.ForCreate(meta.(*clients.Client).StopContext, d)
 	defer cancel()
@@ -627,20 +648,20 @@ func resourceArmBatchPoolCreate(d *schema.ResourceData, meta interface{}) error 
 		}
 	}
 
-	return resourceArmBatchPoolRead(d, meta)
+	return resourceBatchPoolRead(d, meta)
 }
 
-func resourceArmBatchPoolUpdate(d *schema.ResourceData, meta interface{}) error {
+func resourceBatchPoolUpdate(d *schema.ResourceData, meta interface{}) error {
 	client := meta.(*clients.Client).Batch.PoolClient
 	ctx, cancel := timeouts.ForUpdate(meta.(*clients.Client).StopContext, d)
 	defer cancel()
 
-	id, err := parse.BatchPoolID(d.Id())
+	id, err := parse.PoolID(d.Id())
 	if err != nil {
 		return err
 	}
 
-	resp, err := client.Get(ctx, id.ResourceGroup, id.AccountName, id.Name)
+	resp, err := client.Get(ctx, id.ResourceGroup, id.BatchAccountName, id.Name)
 	if err != nil {
 		return fmt.Errorf("Error retrieving the Batch pool %q (Resource Group %q): %+v", id.Name, id.ResourceGroup, err)
 	}
@@ -653,12 +674,12 @@ func resourceArmBatchPoolUpdate(d *schema.ResourceData, meta interface{}) error 
 		}
 
 		log.Printf("[INFO] stopping the pending resize operation on this pool...")
-		if _, err = client.StopResize(ctx, id.ResourceGroup, id.AccountName, id.Name); err != nil {
+		if _, err = client.StopResize(ctx, id.ResourceGroup, id.BatchAccountName, id.Name); err != nil {
 			return fmt.Errorf("Error stopping resize operation for Batch pool %q (Resource Group %q): %+v", id.Name, id.ResourceGroup, err)
 		}
 
 		// waiting for the pool to be in steady state
-		if err = waitForBatchPoolPendingResizeOperation(ctx, client, id.ResourceGroup, id.AccountName, id.Name); err != nil {
+		if err = waitForBatchPoolPendingResizeOperation(ctx, client, id.ResourceGroup, id.BatchAccountName, id.Name); err != nil {
 			return fmt.Errorf("Error waiting for Batch pool %q (resource group %q) being ready", id.Name, id.ResourceGroup)
 		}
 	}
@@ -702,47 +723,47 @@ func resourceArmBatchPoolUpdate(d *schema.ResourceData, meta interface{}) error 
 	}
 
 	if d.HasChange("metadata") {
-		log.Printf("[DEBUG] Updating the MetaData for Batch pool %q (Account name %q / Resource Group %q)..", id.Name, id.AccountName, id.ResourceGroup)
+		log.Printf("[DEBUG] Updating the MetaData for Batch pool %q (Account name %q / Resource Group %q)..", id.Name, id.BatchAccountName, id.ResourceGroup)
 		metaDataRaw := d.Get("metadata").(map[string]interface{})
 
 		parameters.PoolProperties.Metadata = ExpandBatchMetaData(metaDataRaw)
 	}
 
-	result, err := client.Update(ctx, id.ResourceGroup, id.AccountName, id.Name, parameters, "")
+	result, err := client.Update(ctx, id.ResourceGroup, id.BatchAccountName, id.Name, parameters, "")
 	if err != nil {
 		return fmt.Errorf("Error updating Batch pool %q (Resource Group %q): %+v", id.Name, id.ResourceGroup, err)
 	}
 
 	// if the pool is not Steady after the update, wait for it to be Steady
 	if props := result.PoolProperties; props != nil && props.AllocationState != batch.Steady {
-		if err := waitForBatchPoolPendingResizeOperation(ctx, client, id.ResourceGroup, id.AccountName, id.Name); err != nil {
+		if err := waitForBatchPoolPendingResizeOperation(ctx, client, id.ResourceGroup, id.BatchAccountName, id.Name); err != nil {
 			return fmt.Errorf("Error waiting for Batch pool %q (resource group %q) being ready", id.Name, id.ResourceGroup)
 		}
 	}
 
-	return resourceArmBatchPoolRead(d, meta)
+	return resourceBatchPoolRead(d, meta)
 }
 
-func resourceArmBatchPoolRead(d *schema.ResourceData, meta interface{}) error {
+func resourceBatchPoolRead(d *schema.ResourceData, meta interface{}) error {
 	client := meta.(*clients.Client).Batch.PoolClient
 	ctx, cancel := timeouts.ForRead(meta.(*clients.Client).StopContext, d)
 	defer cancel()
 
-	id, err := parse.BatchPoolID(d.Id())
+	id, err := parse.PoolID(d.Id())
 	if err != nil {
 		return err
 	}
 
-	resp, err := client.Get(ctx, id.ResourceGroup, id.AccountName, id.Name)
+	resp, err := client.Get(ctx, id.ResourceGroup, id.BatchAccountName, id.Name)
 	if err != nil {
 		if utils.ResponseWasNotFound(resp.Response) {
-			return fmt.Errorf("Error: Batch pool %q in account %q (Resource Group %q) was not found", id.Name, id.AccountName, id.ResourceGroup)
+			return fmt.Errorf("Error: Batch pool %q in account %q (Resource Group %q) was not found", id.Name, id.BatchAccountName, id.ResourceGroup)
 		}
 		return fmt.Errorf("Error making Read request on AzureRM Batch pool %q: %+v", id.Name, err)
 	}
 
 	d.Set("name", id.Name)
-	d.Set("account_name", id.AccountName)
+	d.Set("account_name", id.BatchAccountName)
 	d.Set("resource_group_name", id.ResourceGroup)
 
 	if props := resp.PoolProperties; props != nil {
@@ -782,27 +803,25 @@ func resourceArmBatchPoolRead(d *schema.ResourceData, meta interface{}) error {
 		d.Set("start_task", flattenBatchPoolStartTask(props.StartTask))
 		d.Set("metadata", FlattenBatchMetaData(props.Metadata))
 
-		if props.NetworkConfiguration != nil {
-			if err := d.Set("network_configuration", FlattenBatchPoolNetworkConfiguration(props.NetworkConfiguration)); err != nil {
-				return fmt.Errorf("error setting `network_configuration`: %v", err)
-			}
+		if err := d.Set("network_configuration", flattenBatchPoolNetworkConfiguration(props.NetworkConfiguration)); err != nil {
+			return fmt.Errorf("error setting `network_configuration`: %v", err)
 		}
 	}
 
 	return nil
 }
 
-func resourceArmBatchPoolDelete(d *schema.ResourceData, meta interface{}) error {
+func resourceBatchPoolDelete(d *schema.ResourceData, meta interface{}) error {
 	client := meta.(*clients.Client).Batch.PoolClient
 	ctx, cancel := timeouts.ForDelete(meta.(*clients.Client).StopContext, d)
 	defer cancel()
 
-	id, err := parse.BatchPoolID(d.Id())
+	id, err := parse.PoolID(d.Id())
 	if err != nil {
 		return err
 	}
 
-	future, err := client.Delete(ctx, id.ResourceGroup, id.AccountName, id.Name)
+	future, err := client.Delete(ctx, id.ResourceGroup, id.BatchAccountName, id.Name)
 	if err != nil {
 		return fmt.Errorf("Error deleting Batch pool %q (Resource Group %q): %+v", id.Name, id.ResourceGroup, err)
 	}
@@ -940,45 +959,4 @@ func validateBatchPoolCrossFieldRules(pool *batch.Pool) error {
 	}
 
 	return nil
-}
-
-func validateFrontendPortRangeRange(i interface{}, k string) (warnings []string, errors []error) {
-	v, ok := i.(string)
-	if !ok {
-		errors = append(errors, fmt.Errorf("expected type of %s to be string", k))
-		return warnings, errors
-	}
-
-	parts := strings.Split(v, "-")
-	if len(parts) != 2 {
-		errors = append(errors, fmt.Errorf("expected %s to contain a single '-', got %v", k, i))
-		return warnings, errors
-	}
-
-	startPort, err := strconv.Atoi(parts[0])
-	if err != nil {
-		errors = append(errors, fmt.Errorf("expected %s on the left of - to be an integer, got %v: %v", k, i, err))
-		return warnings, errors
-	}
-
-	endPort, err := strconv.Atoi(parts[1])
-	if err != nil {
-		errors = append(errors, fmt.Errorf("expected %s on the right of - to be an integer, got %v: %v", k, i, err))
-		return warnings, errors
-	}
-
-	if !validPortNumber(startPort) || !validPortNumber(endPort) {
-		errors = append(errors, fmt.Errorf("expect values range between 1 and 65534 except ports from `50000` to `55000`, got %v: %v", k, i))
-		return warnings, errors
-	}
-	if endPort-startPort < 100 {
-		errors = append(errors, fmt.Errorf("values must be a range of at least 100, got %v: %v", k, i))
-		return warnings, errors
-	}
-
-	return warnings, errors
-}
-
-func validPortNumber(port int) bool {
-	return 1 <= port && port < 50000 || 55000 < port && port <= 65535
 }

@@ -1,5 +1,5 @@
 ---
-subcategory: "DesktopVirtualization"
+subcategory: "Desktop Virtualization"
 layout: "azurerm"
 page_title: "Azure Resource Manager: azurerm_virtual_desktop_application_group"
 description: |-
@@ -19,7 +19,7 @@ provider "azurerm" {
 
 resource "azurerm_resource_group" "example" {
   name     = "rg-example-virtualdesktop"
-  location = "eastus"
+  location = "West Europe"
 }
 
 resource "azurerm_virtual_desktop_host_pool" "pooledbreadthfirst" {
@@ -108,5 +108,5 @@ The `timeouts` block allows you to specify [timeouts](https://www.terraform.io/d
 Virtual Desktop Application Groups can be imported using the `resource id`, e.g.
 
 ```
-terraform import virtual_desktop_application_group.example /subscriptions/00000000-0000-0000-0000-000000000000/resourceGroups/myGroup1/providers/Microsoft.DesktopVirtualization/applicationGroups/myapplicationgroup
+terraform import azurerm_virtual_desktop_application_group.example /subscriptions/00000000-0000-0000-0000-000000000000/resourceGroups/myGroup1/providers/Microsoft.DesktopVirtualization/applicationGroups/myapplicationgroup
 ```

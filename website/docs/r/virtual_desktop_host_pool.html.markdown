@@ -1,5 +1,5 @@
 ---
-subcategory: "DesktopVirtualization"
+subcategory: "Desktop Virtualization"
 layout: "azurerm"
 page_title: "Azure Resource Manager: azurerm_virtual_desktop_host_pool"
 description: |-
@@ -25,6 +25,7 @@ resource "azurerm_virtual_desktop_host_pool" "example" {
   name                     = "pooleddepthfirst"
   friendly_name            = "pooleddepthfirst"
   validate_environment     = true
+  custom_rdp_properties    = "audiocapturemode:i:1;audiomode:i:0;"
   description              = "Acceptance Test: A pooled host pool - pooleddepthfirst"
   type                     = "Pooled"
   maximum_sessions_allowed = 50
@@ -49,15 +50,17 @@ The following arguments are supported:
 * `type` - (Required) The type of the Virtual Desktop Host Pool. Valid options are
     `Personal` or `Pooled`. Changing the type forces a new resource to be created.
 
-* `load_balancer_type` -  (Optional) `Breadthfirst` load balancing distributes new user sessions across all available session hosts in the host pool.
-    `Depthfirst` load balancing distributes new user sessions to an available session host with the highest number of connections but has not reached its maximum session limit threshold.
+* `load_balancer_type` -  (Optional) `BreadthFirst` load balancing distributes new user sessions across all available session hosts in the host pool.
+    `DepthFirst` load balancing distributes new user sessions to an available session host with the highest number of connections but has not reached its maximum session limit threshold.
     `Persistent` should be used if the host pool type is `Personal`
 
 * `friendly_name` - (Optional) A friendly name for the Virtual Desktop Host Pool.
 
 * `description` - (Optional) A description for the Virtual Desktop Host Pool.
 
-* `validation_environment` -  (Optional) Allows you to test service changes before they are deployed to production. Defaults to `false`.
+* `validate_environment` -  (Optional) Allows you to test service changes before they are deployed to production. Defaults to `false`.
+
+* `custom_rdp_properties` - (Optional) A valid custom RDP properties string for the Virtual Desktop Host Pool, available properties can be [found in this article](https://docs.microsoft.com/en-us/windows-server/remote/remote-desktop-services/clients/rdp-files).
 
 * `personal_desktop_assignment_type` - (Optional) `Automatic` assignment – The service will select an available host and assign it to an user.
     `Direct` Assignment – Admin selects a specific host to assign to an user.
@@ -107,5 +110,5 @@ The `timeouts` block allows you to specify [timeouts](https://www.terraform.io/d
 Virtual Desktop Host Pools can be imported using the `resource id`, e.g.
 
 ```
-terraform import virtual_desktop_host_pool.example /subscriptions/00000000-0000-0000-0000-000000000000/resourceGroups/myGroup1/providers/Microsoft.DesktopVirtualization/hostpools/myhostpool
+terraform import azurerm_virtual_desktop_host_pool.example /subscriptions/00000000-0000-0000-0000-000000000000/resourceGroups/myGroup1/providers/Microsoft.DesktopVirtualization/hostpools/myhostpool
 ```
